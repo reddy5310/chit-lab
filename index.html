@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f766e">
+<title>Chit Lab</title>
+<meta name="description" content="Interactive chit fund calculator: compare durations, group sizes, auctions, member outcomes and foreman economics.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><img src="icon.svg" alt="" width="30" height="30"><span>Chit Lab <small>scenario calculator</small></span></div>
+  <span class="sp"></span>
+  <button class="btn" id="pin" title="Save this scenario to compare">＋ Pin scenario</button>
+  <button class="btn ghost" id="share" title="Copy a link to this exact scenario">Share</button>
+  <button class="btn ghost" id="theme" title="Toggle light / dark" aria-label="Toggle theme">◐</button>
+</header>
+<div class="shell">
+  <details class="controls" id="controls" open>
+    <summary>Scenario controls</summary>
+    <div id="ctl"></div>
+  </details>
+  <main>
+    <section id="hero" class="hero" aria-live="polite"></section>
+    <nav class="tabs" id="tabs" role="tablist"></nav>
+    <div id="view"></div>
+  </main>
+</div>
+<p class="foot">Chit Lab is an illustrative model. Future auction outcomes are scenarios, never guaranteed returns. The 7% commission and 30% discount ceilings reflect the Chit Funds Act, 1982 as described in your brief; the commission basis, ticket structure, security and eligibility rules must be confirmed with a chit-law specialist and the state Registrar before any real chit is offered.</p>
+<div class="tip" id="tip" role="tooltip"></div>
+<div class="toast" id="toast"></div>
+<script type="module" src="lab.js"></script>
+</body>
+</html>
