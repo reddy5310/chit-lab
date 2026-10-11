@@ -8,11 +8,11 @@ const KEY = 'chit-lab:v1';
 const TABS = [['lab', 'Lab'], ['auctions', 'Auctions'], ['member', 'Member view'], ['manager', 'Manager'], ['compare', 'Compare']];
 
 // ---------- state ----------
-const mergeCfg = (c) => ({ ...E.DEFAULTS, ...c, mix: { ...E.DEFAULTS.mix, ...(c && c.mix) } });
+const mergeCfg = (c) => E.normalizeConfig({ ...E.DEFAULTS, ...c, mix: { ...E.DEFAULTS.mix, ...(c && c.mix) } });
 function load() {
   const st = { cfg: mergeCfg(), tab: 'lab', pinned: [], sel: null, need: null, metric: 'perCr' };
-  try { const d = JSON.parse(localStorage.getItem(KEY)); if (d) { st.cfg = mergeCfg(d.cfg); st.tab = d.tab || 'lab'; st.pinned = d.pinned || []; } } catch {}
-  try { const m = location.hash.match(/c=([^&]+)/); if (m) st.cfg = mergeCfg(JSON.parse(decodeURIComponent(escape(atob(m[1]))))); } catch {}
+  try { const d = JSON.parse(localStorage.getItem(KEY)); if (d) { st.cfg = mergeCfg(d.cfg); st.tab = d.tab || 'lab'; st.pinned = (Array.isArray(d.pinned) ? d.pinned : []).filter((x) => x && Number.isFinite(+x.id) && typeof x.label === 'string').slice(0, 4).map((x) => ({ id: +x.id, label: x.label.slice(0, 60), cfg: mergeCfg(x.cfg) })); if (!TABS.some(([k]) => k === st.tab)) st.tab = 'lab'; } } catch {}
+  try { const m = location.hash.match(/c=([^&]+)/); if (m) st.cfg = mergeCfg(JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(m[1])))))); } catch {}
   return st;
 }
 const S = load();
@@ -23,11 +23,14 @@ function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.ad
 
 // ---------- controls ----------
 const RANGES = {
-  members:           { label: 'Members', min: (c) => E.memberRange(c.months)[0], max: (c) => E.memberRange(c.months)[1], step: 1, fmt: (c) => `${c.members} people` },
-  startPct:          { label: 'Opening discount', min: () => 0, max: () => 30, step: 0.5, fmt: (c) => `${c.startPct}% of chit` },
-  endPct:            { label: 'Late-cycle discount', min: () => 0, max: () => 30, step: 0.5, fmt: (c) => `${c.endPct}% of chit` },
-  commissionPct:     { label: 'Foreman commission', min: () => 1, max: () => E.ACT.maxCommissionPct, step: 0.25, fmt: (c) => `${c.commissionPct}% of chit` },
-  maxDiscountPct:    { label: 'Max discount allowed', min: () => 10, max: () => E.ACT.maxDiscountPct, step: 1, fmt: (c) => `${c.maxDiscountPct}% of chit` },
+  months:            { label: 'Duration', min: () => 3, max: () => 36, step: 1, fmt: (c) => `${c.months} months` },
+  members:           { label: 'Members', min: (c) => E.memberBounds(c.months)[0], max: (c) => E.memberBounds(c.months)[1], step: 1, fmt: (c) => `${c.members} people` },
+  startPct:          { label: 'Opening discount', min: () => 0, max: () => 50, limit: 30, step: 0.5, fmt: (c) => `${c.startPct}% of chit` },
+  endPct:            { label: 'Late-cycle discount', min: () => 0, max: () => 50, limit: 30, step: 0.5, fmt: (c) => `${c.endPct}% of chit` },
+  commissionPct:     { label: 'Foreman commission', min: () => 0, max: () => 15, limit: E.ACT.maxCommissionPct, step: 0.25, fmt: (c) => `${c.commissionPct}% of chit` },
+  maxDiscountPct:    { label: 'Max discount allowed', min: () => 10, max: () => 50, limit: E.ACT.maxDiscountPct, step: 1, fmt: (c) => `${c.maxDiscountPct}% of chit` },
+  joiningFeePct:     { label: 'Joining fee / ticket', min: () => 0, max: () => 5, step: 0.25, fmt: (c) => `${c.joiningFeePct}% of chit, once` },
+  serviceFeePct:     { label: 'Service fee / ticket', min: () => 0, max: () => 10, step: 0.25, fmt: (c) => `${c.serviceFeePct}% of instalment, monthly` },
   defaultPct:        { label: 'Post-prize default rate', min: () => 0, max: () => 15, step: 0.5, fmt: (c) => `${c.defaultPct}% of prized tickets` },
   coverPct:          { label: 'Security covering dues', min: () => 0, max: () => 100, step: 5, fmt: (c) => `${c.coverPct}%` },
   securityPct:       { label: 'Foreman security deposit', min: () => 0, max: () => 150, step: 10, fmt: (c) => `${c.securityPct}% of chit` },
@@ -42,10 +45,12 @@ function buildControls() {
   $('#ctl').innerHTML = `
   <div class="cgroup"><h3>Scheme</h3>
     <div class="chips" id="schemes">${SCHEMES.map((s) => `<button class="chip" data-scheme="${s.id}"><b>${s.name}</b><span>${s.months} months · ${s.role}</span></button>`).join('')}</div>
-    <div class="field"><div class="lab">Duration</div><div class="chips row" id="durs">${[6, 12, 18, 20, 24].map((m) => `<button class="chip" data-months="${m}"><b>${m}m</b></button>`).join('')}</div></div>
+    <div class="field"><div class="lab">Duration</div><div class="chips row" id="durs">${[6, 12, 18, 20, 24].map((m) => `<button class="chip" data-months="${m}"><b>${m}m</b></button>`).join('')}</div>
+      <input type="range" id="r-months" data-k="months" aria-label="Duration in months"><output id="o-months" class="mute" style="font-size:12px"></output></div>
   </div>
   <div class="cgroup"><h3>Contribution</h3>
     <div class="field"><label for="ticketLog">Monthly ticket<output id="o-ticket"></output></label><input type="range" id="ticketLog" min="0" max="1000" step="1">
+      <div class="field" style="margin-top:8px"><label for="ticketNum">Exact amount (₹500 to ₹5,00,000)</label><input type="number" id="ticketNum" min="500" max="500000" step="100" inputmode="numeric"></div>
       <div class="chips row" id="tickets">${TICKETS.map((t) => `<button class="chip" data-ticket="${t}"><b>${fmtShort(t)}</b></button>`).join('')}</div><small id="s-ticket"></small></div>
   </div>
   <div class="cgroup"><h3>Group</h3>${rangeField('members')}<div class="alloc" id="alloc"></div><small class="mute" id="s-alloc"></small>
@@ -62,12 +67,13 @@ function buildControls() {
   <div class="cgroup"><h3>Foreman terms</h3>${rangeField('commissionPct')}
     <div class="field"><div class="lab">Commission charged</div><div class="seg" id="basis"><button data-basis="auction">Every auction</button><button data-basis="cycle">Once per cycle</button></div><small class="mute" id="s-basis"></small></div>
     ${rangeField('maxDiscountPct')}
+    <details class="adv field"><summary>Extra fees charged to members (what-if)</summary>${rangeField('joiningFeePct')}${rangeField('serviceFeePct')}<small class="mute">Outside the statutory commission. Test what a quote really costs.</small></details>
   </div>
   <div class="cgroup"><details class="adv"><summary>Manager assumptions</summary>${['defaultPct', 'coverPct', 'securityPct', 'cacPerMember', 'opsPerMemberMonth', 'txnFee'].map(rangeField).join('')}</details></div>`;
 }
 
-const ticketToPos = (t) => Math.round((1000 * Math.log(t / 2000)) / Math.log(50));
-const posToTicket = (p) => { const t = 2000 * Math.pow(50, p / 1000); const st = t < 10000 ? 500 : t < 50000 ? 1000 : 5000; return Math.min(100000, Math.max(2000, Math.round(t / st) * st)); };
+const ticketToPos = (t) => Math.round((1000 * Math.log(t / 500)) / Math.log(1000));
+const posToTicket = (p) => { const t = 500 * Math.pow(1000, p / 1000); const st = t < 2000 ? 100 : t < 10000 ? 500 : t < 50000 ? 1000 : t < 200000 ? 5000 : 10000; return Math.min(500000, Math.max(500, Math.round(t / st) * st)); };
 const fillPct = (el) => el.style.setProperty('--p', `${((el.value - el.min) / (el.max - el.min || 1)) * 100}%`);
 
 function sync() {
@@ -80,12 +86,14 @@ function sync() {
   $('#ff').checked = c.foremanFirst;
   const tl = $('#ticketLog'); tl.value = ticketToPos(c.ticket); fillPct(tl);
   $('#o-ticket').textContent = inr(c.ticket);
+  if (document.activeElement !== $('#ticketNum')) $('#ticketNum').value = c.ticket;
   const sc = SCHEMES.find((s) => s.id === c.scheme);
   $('#s-ticket').textContent = sc ? (c.ticket < sc.min || c.ticket > sc.max ? `Outside ${sc.name}'s usual range (${fmtShort(sc.min)}–${fmtShort(sc.max)})` : `${sc.name} range ${fmtShort(sc.min)}–${fmtShort(sc.max)}`) : 'Custom duration';
   for (const k of Object.keys(RANGES)) {
     const el = $(`#r-${k}`), r = RANGES[k];
     el.min = r.min(c); el.max = r.max(c); el.step = r.step; el.value = c[k]; fillPct(el);
-    $(`#o-${k}`).textContent = r.fmt(c);
+    const over = r.limit != null && c[k] > r.limit;
+    const o = $(`#o-${k}`); o.textContent = r.fmt(c) + (over ? ` · above ${r.limit}% Act limit` : ''); o.classList.toggle('over', over);
   }
   const mt = Object.values(c.mix).reduce((a, b) => a + b, 0) || 1;
   for (const k of Object.keys(MIX)) { const el = $(`#m-${k}`); el.value = c.mix[k]; fillPct(el); $(`#om-${k}`).textContent = `${Math.round((c.mix[k] / mt) * 100)}%`; }
@@ -98,17 +106,20 @@ function sync() {
 
 function set(patch, fn) {
   S.cfg = fn ? fn(S.cfg) : { ...S.cfg, ...patch };
-  S.cfg.members = E.clamp(S.cfg.members, ...E.memberRange(S.cfg.months));
+  S.cfg.members = E.clamp(S.cfg.members, ...E.memberBounds(S.cfg.months));
   persist(); sync(); render();
 }
 
+function setMonths(m) {
+  set(0, (c) => { const n = { ...c, months: m, scheme: SCHEMES.find((x) => x.months === m && x.id === c.scheme) ? c.scheme : 'custom', override: null }; return c.heat === 'custom' ? n : { ...n, ...E.heatBids(c.heat, m) }; });
+}
 function wireControls() {
   const ctl = $('#ctl');
   ctl.addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
     const d = b.dataset;
     if (d.scheme) set(0, (c) => E.withScheme(c, d.scheme));
-    else if (d.months) set(0, (c) => { const n = { ...c, months: +d.months, scheme: 'custom', override: null }; return c.heat === 'custom' ? n : { ...n, ...E.heatBids(c.heat, +d.months) }; });
+    else if (d.months) setMonths(+d.months);
     else if (d.ticket) set({ ticket: +d.ticket });
     else if (d.heat) set(0, (c) => E.withHeat(c, d.heat));
     else if (d.basis) set({ commissionBasis: d.basis });
@@ -116,10 +127,12 @@ function wireControls() {
   ctl.addEventListener('input', (e) => {
     const el = e.target;
     if (el.id === 'ticketLog') set({ ticket: posToTicket(+el.value) });
+    else if (el.id === 'ticketNum') { const v = +el.value; if (v >= 500 && v <= 500000) set({ ticket: Math.round(v) }); }
     else if (el.id === 'ff') set({ foremanFirst: el.checked, override: null });
     else if (el.dataset.k) {
       const k = el.dataset.k, v = +el.value;
-      if (k === 'startPct' || k === 'endPct') set({ [k]: v, heat: 'custom', override: null });
+      if (k === 'months') setMonths(v);
+      else if (k === 'startPct' || k === 'endPct') set({ [k]: v, heat: 'custom', override: null });
       else set({ [k]: v });
     } else if (el.dataset.mix) set({ mix: { ...S.cfg.mix, [el.dataset.mix]: +el.value } });
   });
@@ -137,17 +150,24 @@ function verdictText(a) {
   return [a.winWin === 'warn' ? 'Workable' : 'Out of balance', t[0].toUpperCase() + t.slice(1) + '.'];
 }
 const ICON = { good: '✓', warn: '!', bad: '✕' };
+function legalStrip(a) {
+  const k = a.compliance;
+  if (k.ok && !k.notes.length) return '';
+  const head = k.ok ? 'Check' : 'What-if only';
+  const body = k.ok ? k.notes.join('. ') + '.' : `${k.issues.join('. ')}. This scenario is outside the Chit Funds Act as described in your brief, so it can’t be registered as is.`;
+  return `<div class="verdict st-${k.ok ? 'warn' : 'bad'}" role="alert"><b>${head}</b><span>${esc(body)}</span></div>`;
+}
 function renderHero(a) {
   const c = S.cfg, [vt, vd] = verdictText(a);
   $('#hero').innerHTML = `
   <div class="card heroL">
     <div class="kpi"><div class="k">${schemeName(c)} · gross chit</div><div class="v">${inr(a.C)}</div><div class="n">${inr(c.ticket)} × ${c.months} months · ${a.alloc.M} members · volume ${fmtShort(a.volume)}</div></div>
-    <div class="kpi"><div class="k">Every member pays</div><div class="v sm">${inr(a.effMin)} – ${inr(a.effMax)}</div><div class="n">avg ${inr(a.effAvg)} vs ${inr(c.ticket)} base · ${inr(c.ticket * c.months - a.totalPaid)} saved over the cycle</div></div>
+    <div class="kpi"><div class="k">Every member pays</div><div class="v sm">${inr(a.effMin)} – ${inr(a.effMax)}</div><div class="n">avg ${inr(a.effAvg)} vs ${inr(c.ticket)} base · ${(c.ticket * c.months - a.totalPaid) >= 0 ? `${inr(c.ticket * c.months - a.totalPaid)} saved over the cycle` : `${inr(a.totalPaid - c.ticket * c.months)} extra cost over the cycle`}</div></div>
     <div class="kpi"><div class="k">Foreman earns</div><div class="v sm ${a.mgr.margin < 0 ? 'neg' : ''}">${inr(a.mgr.margin)}</div><div class="n">${fmtShort(a.mgr.perCr)} per ₹1 Cr · ${pct(a.mgr.roe, 0)} p.a. on ${fmtShort(a.mgr.capital)} security</div></div>
     <div class="kpi"><div class="k">Group health</div><div class="v sm">${a.health}<span class="mute" style="font-size:14px"> / 100</span></div><div class="n">Heuristic score · see Manager tab</div></div>
   </div>
   <div class="card"><div class="gauges">${a.gauges.map((g) => `<div class="gauge st-${g.status}"><span class="ic" title="${g.status}">${ICON[g.status]}</span><span class="t">${g.label}<small>${g.note}</small></span><span class="val">${g.key === 'mgr' ? pct(g.value, 2) : rate(g.value)}<small>${g.unit}</small></span></div>`).join('')}</div>
-  <div class="verdict st-${a.winWin}"><b>${vt}</b><span>${esc(vd)}</span></div></div>`;
+  <div class="verdict st-${a.winWin}"><b>${vt}</b><span>${esc(vd)}</span></div>${legalStrip(a)}</div>`;
 }
 
 // ---------- tabs / views ----------
@@ -158,7 +178,7 @@ const note = (t, k = '') => `<div class="note ${k}">${t}</div>`;
 
 function insights(a) {
   const c = S.cfg, n = [];
-  if (c.commissionBasis === 'cycle') n.push(note(`<b>Commission charged once per cycle.</b> Foreman revenue is ${inr(a.revenue)}, only ${pct((a.revenue / a.volume) * 100, 2)} of volume. Charging ${c.commissionPct}% on every auction gives ${inr(c.commissionPct / 100 * a.C * (c.months - (c.foremanFirst ? 1 : 0)))}. The brief’s “₹35K per ₹5L group” figure is this once-per-cycle reading, so confirm the basis with counsel.`, 'warn'));
+  if (c.commissionBasis === 'cycle') n.push(note(`<b>Commission charged once per cycle.</b> Commission revenue is ${inr(a.commissionRevenue)}, only ${pct((a.commissionRevenue / a.volume) * 100, 2)} of volume. Charging ${c.commissionPct}% on every auction gives ${inr(c.commissionPct / 100 * a.C * (c.months - (c.foremanFirst ? 1 : 0)))}. The brief’s “₹35K per ₹5L group” figure is this once-per-cycle reading, so confirm the basis with counsel.`, 'warn'));
   if (a.alloc.multi) n.push(note(`<b>Multi-ticket structure.</b> ${a.alloc.tickets} member tickets sit with ${a.alloc.M} members, so some hold ${a.alloc.maxHold}. One default hits ${a.alloc.maxHold}× harder, so cap exposure per member, and have counsel confirm the ticket structure.`, 'warn'));
   if (a.saver.irr != null && a.saver.irr < GUARD.saverYield.warn) n.push(note(`<b>Savers are not rewarded.</b> The last winner earns ${rate(a.saver.irr)} a year. Dividends only exist when discounts exceed the ${c.commissionPct}% fee, so lengthen the cycle or lower the commission.`, 'bad'));
   if (c.startPct >= c.maxDiscountPct) n.push(note(`The opening discount is at the ${c.maxDiscountPct}% ceiling, so early bidders are capped by law. The real cost of early cash can’t rise further.`));
@@ -178,7 +198,7 @@ function story(t, title, color, lab, a) {
 
 function viewLab(a) {
   const c = S.cfg, rows = a.sim.rows;
-  const effChart = bars({ data: rows.map((r) => ({ label: r.m, v: r.eff, tip: `<b>Month ${r.m}</b>\nDiscount ${pct(r.pct)} (${inr(r.D)})\nDividend per ticket ${inr(r.div)}\nYou pay ${inr(r.eff)}` })), yFmt: fmtShort, ref: { v: c.ticket, label: `Base ${fmtShort(c.ticket)}` } });
+  const effChart = bars({ data: rows.map((r) => ({ label: r.m, v: r.pay, tip: `<b>Month ${r.m}</b>\nDiscount ${pct(r.pct)} (${inr(r.D)})\nDividend per ticket ${inr(r.div)}\n${r.service ? `Service fee ${inr(r.service)}\n` : ''}You pay ${inr(r.pay)}` })), yFmt: fmtShort, ref: { v: c.ticket, label: `Base ${fmtShort(c.ticket)}` } });
   const discChart = lines({ series: [{ name: 'Discount', cls: 's2', values: rows.map((r) => r.pct) }], xs: rows.map((r) => r.m), yFmt: (v) => `${Math.round(v)}%`,
     max: Math.ceil((c.maxDiscountPct * 1.1) / 5) * 5, refs: [{ v: c.maxDiscountPct, label: `${c.maxDiscountPct}% cap` }, { v: (rows[rows.length - 1].fee / a.C) * 100, label: 'Fee' }],
     tip: (i) => `<b>Month ${rows[i].m}</b>\nDiscount ${pct(rows[i].pct)} · ${inr(rows[i].D)}\nWinner gets ${inr(rows[i].prize)}` });
@@ -194,13 +214,14 @@ function viewAuctions(a) {
   const split = (sel.prize / a.C) * 100, fee = (sel.fee / a.C) * 100, div = ((sel.D - sel.fee) / a.C) * 100;
   return `<div class="grid2 ga">
   <div class="card"><h2>Month by month</h2><div class="sub">Click a row to see exactly where each rupee goes.</div><div class="tw"><table><thead><tr><th>Month</th><th>Winner</th><th>Discount</th><th>Dividend</th><th>Members pay</th><th>Winner gets</th></tr></thead><tbody>
-  ${rows.map((r) => `<tr data-sel="${r.m}" class="${r.m === sel.m ? 'sel' : ''}"><td>${r.m}</td><td>${r.kind === 'foreman' ? '<span class="tag f">Foreman</span>' : r.kind === 'final' ? '<span class="tag l">Last ticket</span>' : 'Bid winner'}</td><td>${pct(r.pct)} · ${fmtShort(r.D)}</td><td>${inr(r.div)}</td><td><b>${inr(r.eff)}</b></td><td>${inr(r.prize)}</td></tr>`).join('')}</tbody></table></div></div>
+  ${rows.map((r) => `<tr data-sel="${r.m}" class="${r.m === sel.m ? 'sel' : ''}"><td>${r.m}</td><td>${r.kind === 'foreman' ? '<span class="tag f">Foreman</span>' : r.kind === 'final' ? '<span class="tag l">Last ticket</span>' : 'Bid winner'}</td><td>${pct(r.pct)} · ${fmtShort(r.D)}</td><td>${inr(r.div)}</td><td><b>${inr(r.pay)}</b></td><td>${inr(r.prize)}</td></tr>`).join('')}</tbody></table></div></div>
   <div class="card"><h2>Why month ${sel.m} works out this way</h2><div class="sub">${inr(a.C)} chit · discount ${pct(sel.pct)}</div>
     <div class="split"><i style="width:${split}%;background:var(--s1)"></i><i style="width:${fee}%;background:var(--s2)"></i><i style="width:${div}%;background:var(--s3)"></i></div>
     ${legend([{ v: 's1', t: `Winner ${inr(sel.prize)}` }, { v: 's2', t: `Foreman fee ${inr(sel.fee)}` }, { v: 's3', t: `Shared back ${inr(sel.D - sel.fee)}` }])}
     <div class="row"><span>Base instalment</span><b>${inr(c.ticket)}</b></div>
     <div class="row"><span>− Your share (${inr(sel.D - sel.fee)} ÷ ${c.months} tickets)</span><b>${inr(sel.div)}</b></div>
-    <div class="row"><span>= You pay this month</span><b>${inr(sel.eff)}</b></div>
+    ${sel.service ? `<div class="row"><span>+ Service fee</span><b>${inr(sel.service)}</b></div>` : ''}${sel.join ? `<div class="row"><span>+ Joining fee (once, per ticket)</span><b>${inr(sel.join)}</b></div>` : ''}
+    <div class="row"><span>= You pay this month</span><b>${inr(sel.pay + sel.join)}</b></div>
     <div class="row"><span>Exposure of prized members after this month</span><b>${fmtShort(a.mgr.exposure[sel.m - 1])}</b></div>
     ${note(sel.kind === 'foreman' ? 'Under the Act the foreman may take the first chit without discount; nothing is shared back this month.' : sel.kind === 'final' ? 'The last remaining ticket receives the pot with no competing bid; only the fee is deducted.' : 'The discount the winner accepts is split: the foreman’s fee first, the rest returns to all tickets equally.')}</div></div>`;
 }
@@ -209,9 +230,10 @@ function viewMember(a) {
   const c = S.cfg, T = c.months, lo = a.firstMember;
   const need = E.clamp(S.need ?? a.earlyW, lo, T - 1 || T);
   const row = a.sim.rows[need - 1];
-  return `<div class="card"><h2>When might you need the money?</h2><div class="sub">Drag to a month and the whole chit recalculates around you. These are scenarios, not promises.</div>
+  const bidLo = Math.ceil((row.fee / a.C) * 100), bidHi = Math.max(c.maxDiscountPct, bidLo);
+  return `<div class="card"><h2>When might you need the money?</h2><div class="sub">Drag to a month and the whole chit recalculates around you. Got a quote from a foreman? Enter their commission and extra fees in the controls and see what it really costs you. Scenarios, not promises.</div>
   <div class="grid2" style="margin:0"><div class="field"><label for="need">I want the pot in month<output id="o-need"></output></label><input type="range" id="need" min="${lo}" max="${T - 1}" step="1" value="${need}"></div>
-  <div class="field"><label for="bid">My discount for that month<output id="o-bid"></output></label><input type="range" id="bid" min="${Math.ceil((row.fee / a.C) * 100)}" max="${c.maxDiscountPct}" step="0.5" value="${c.override && c.override.month === need ? c.override.pct : row.pct.toFixed(1)}"><small class="mute">Higher bids win earlier but cost more. Others’ dividends change too.</small></div></div></div>
+  <div class="field"><label for="bid">My discount for that month<output id="o-bid"></output></label><input type="range" id="bid" min="${bidLo}" max="${bidHi}" step="0.5" value="${E.clamp(c.override && c.override.month === need ? c.override.pct : row.pct, bidLo, bidHi).toFixed(1)}"><small class="mute">Higher bids win earlier but cost more. Others’ dividends change too.</small></div></div></div>
   <div id="mOut"></div>`;
 }
 function paintMember(a) {
@@ -241,7 +263,7 @@ function viewManager(a) {
   const c = S.cfg, m = a.mgr, key = JSON.stringify(c);
   if (!mcCache.has(key)) { if (mcCache.size > 20) mcCache.clear(); mcCache.set(key, E.monteCarlo(c, a)); }
   const mc = mcCache.get(key);
-  const pl = [['Foreman commission', m.revenue, 's1'], ['Expected default loss', -m.expectedLoss, 's2'], ['Payment fees', -m.processing, 's2'], ['Operations', -m.ops, 's2'], ['Acquisition', -m.acquisition, 's2']];
+  const pl = [['Foreman commission', m.commissionRevenue, 's1'], ...(m.feeRevenue > 0 ? [['Extra fees collected', m.feeRevenue, 's1']] : []), ['Expected default loss', -m.expectedLoss, 's2'], ['Payment fees', -m.processing, 's2'], ['Operations', -m.ops, 's2'], ['Acquisition', -m.acquisition, 's2']];
   const scale = Math.max(m.revenue, 1);
   const plHtml = pl.map(([l, v, k]) => `<div class="hb"><span>${l}</span><div class="tr"><div class="fill" style="width:${Math.min(100, (Math.abs(v) / scale) * 100)}%;background:var(--${k})"></div></div><b>${inr(v)}</b></div>`).join('')
     + `<div class="hb"><span><b>Net margin</b></span><div class="tr"><div class="fill" style="width:${Math.max(0, Math.min(100, (m.margin / scale) * 100))}%;background:var(--ink)"></div></div><b class="${m.margin < 0 ? 'neg' : ''}">${inr(m.margin)}</b></div>`;
@@ -274,13 +296,22 @@ function viewCompare() {
     const a = grid[ri][ci], v = f(a), out = t < s.min || t > s.max, cur = s.id === c.scheme && t === c.ticket;
     let k = vmax > vmin && v != null ? (v - vmin) / (vmax - vmin) : 0; if (lowBetter) k = 1 - k;
     const neg = v != null && v < 0;
-    return `<div class="hc ${out ? 'out' : ''} ${neg ? 'neg' : ''} ${cur ? 'cur' : ''}" style="--a:${Math.round(8 + k * 52)}%" data-tip="${esc(`${s.name} · ${fmtShort(t)}/month\nChit ${fmtShort(a.C)}\n${M[S.metric][0]}: ${v == null ? '—' : fmt(v)}\nEarly ${rate(a.early.irr)} · Saver ${rate(a.saver.irr)}\nMargin ${fmtShort(a.mgr.margin)}${out ? '\n(outside this scheme’s usual range)' : ''}`)}">${v == null ? '—' : fmt(v)}<em class="${a.winWin}">${ICON[a.winWin]}</em></div>`;
+    return `<div class="hc ${out ? 'out' : ''} ${neg ? 'neg' : ''} ${cur ? 'cur' : ''}" style="--a:${neg ? 20 : Math.round(8 + k * 40)}%" data-tip="${esc(`${s.name} · ${fmtShort(t)}/month\nChit ${fmtShort(a.C)}\n${M[S.metric][0]}: ${v == null ? '—' : fmt(v)}\nEarly ${rate(a.early.irr)} · Saver ${rate(a.saver.irr)}\nMargin ${fmtShort(a.mgr.margin)}${out ? '\n(outside this scheme’s usual range)' : ''}`)}">${v == null ? '—' : fmt(v)}<em class="${a.winWin}">${ICON[a.winWin]}</em></div>`;
   }).join('')).join('');
+  const CS = [2, 3, 4, 5, 6, 7, 8, 10, 12, 15], HK = Object.keys(HEATS);
+  const swp = CS.map((cp) => HK.map((hk) => E.analyze({ ...E.withHeat(c, hk), commissionPct: cp })));
+  const mv = swp.flat().map((a) => a.mgr.marginPct), mlo = Math.min(...mv), mhi = Math.max(...mv);
+  const sweepHtml = `<div class="heat" style="grid-template-columns:110px repeat(3,minmax(110px,1fr));min-width:480px"><div></div>${HK.map((k) => `<div class="hh">${HEATS[k].label} auctions</div>`).join('')}`
+    + CS.map((cp, ri) => `<div class="rh">${cp}%<small>${cp > E.ACT.maxCommissionPct ? 'above Act limit' : cp === E.ACT.maxCommissionPct ? 'Act ceiling' : 'within limit'}</small></div>` + HK.map((k, ci) => {
+      const a = swp[ri][ci], kk = mhi > mlo ? (a.mgr.marginPct - mlo) / (mhi - mlo) : 0;
+      return `<div class="hc ${cp > E.ACT.maxCommissionPct ? 'lim' : ''} ${a.mgr.marginPct < 0 ? 'neg' : ''} ${cp === c.commissionPct && k === c.heat ? 'cur' : ''}" style="--a:${a.mgr.marginPct < 0 ? 20 : Math.round(8 + kk * 40)}%" data-tip="${esc(`${cp}% commission · ${HEATS[k].label} auctions\nForeman margin ${pct(a.mgr.marginPct, 2)} of volume\nSaver yield ${rate(a.saver.irr)} · Early cost ${rate(a.early.irr)}${cp > E.ACT.maxCommissionPct ? '\nAbove the Act ceiling: what-if only' : ''}`)}">${pct(a.mgr.marginPct, 1)}<br><span style="font-weight:500;font-size:11px">savers ${rate(a.saver.irr)}</span><em class="${a.winWin}">${ICON[a.winWin]}</em></div>`;
+    }).join('')).join('') + '</div>';
   return `<div class="card"><h2>Schemes side by side at ${inr(c.ticket)} / month</h2><div class="sub">Uses your current auction, commission and cost assumptions. Pin scenarios with the button above to add columns.</div><div class="tw"><table><thead><tr><th></th>${cmpCols.map((x) => `<th><div class="pinhead">${esc(x.name)}${x.pin ? `<button data-unpin="${x.pin}" aria-label="Remove">✕</button>` : ''}</div></th>`).join('')}</tr></thead><tbody>
     ${R.map(([l, fn]) => `<tr style="cursor:default"><td>${l}</td>${cmpCols.map((x) => `<td class="${l === 'Group health' && x.a.health === bestHealth ? 'pos' : ''}">${fn(x.a)}</td>`).join('')}</tr>`).join('')}</tbody></table></div></div>
   <div class="card" style="margin-top:14px"><h2>Scheme × ticket heatmap</h2><div class="sub">${M[S.metric][0]}. ✓ balanced, ! workable, ✕ off balance. Hatched cells are outside a scheme’s usual ticket range.</div>
     <div class="seg" style="margin-bottom:12px;max-width:640px;flex-wrap:wrap">${Object.entries(M).map(([k, v]) => `<button data-metric="${k}" aria-pressed="${S.metric === k}">${v[0].split(' (')[0]}</button>`).join('')}</div>
-    <div class="tw"><div class="heat"><div></div>${TICKETS.map((t) => `<div class="hh">${fmtShort(t)}</div>`).join('')}${cells}</div></div></div>`;
+    <div class="tw"><div class="heat"><div></div>${TICKETS.map((t) => `<div class="hh">${fmtShort(t)}</div>`).join('')}${cells}</div></div></div>
+  <div class="card" style="margin-top:14px"><h2>What if the foreman charges more? Commission sweep, 2% to 15%</h2><div class="sub">${schemeName(c)} at ${inr(c.ticket)} / month. Each cell: foreman margin as % of volume, then saver yield. Dashed red rows are above the 7% ceiling in your brief: what-if only. Watch savers’ yield fall as commission rises.</div><div class="tw">${sweepHtml}</div></div>`;
 }
 
 // ---------- render ----------

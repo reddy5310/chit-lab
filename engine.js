@@ -36,12 +36,39 @@ export const DEFAULTS = {
   scheme: 'prime20', ticket: 25000, months: 20, members: 15,
   commissionPct: 5, commissionBasis: 'auction', maxDiscountPct: 30,
   heat: 'typical', startPct: 25, endPct: 9, foremanFirst: true, override: null,
-  defaultPct: 3, coverPct: 60, cacPerMember: 1500, opsPerMemberMonth: 40, txnFee: 3, securityPct: 100,
+  defaultPct: 3, coverPct: 60, cacPerMember: 1500, opsPerMemberMonth: 40, txnFee: 3, securityPct: 100, joiningFeePct: 0, serviceFeePct: 0,
   mix: { early: 30, flex: 40, saver: 30 },
 };
 
 export const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
-export const memberRange = (T) => [Math.min(10, T), Math.min(15, T)];
+
+/** Sanitise any config (share links and storage are untrusted): valid keys, numbers in range, integers where needed. */
+export function normalizeConfig(raw) {
+  const r = raw && typeof raw === 'object' ? raw : {};
+  const num = (v, lo, hi, d, int = false) => { const n = Number(v); if (!Number.isFinite(n)) return d; const c = clamp(n, lo, hi); return int ? Math.round(c) : c; };
+  const months = num(r.months, 3, 36, DEFAULTS.months, true);
+  const [mlo, mhi] = memberBounds(months);
+  const mixIn = r.mix && typeof r.mix === 'object' ? r.mix : {};
+  const heat = r.heat === 'custom' || (typeof r.heat === 'string' && Object.hasOwn(HEATS, r.heat)) ? r.heat : DEFAULTS.heat;
+  return {
+    scheme: SCHEMES.some((x) => x.id === r.scheme) ? r.scheme : 'custom',
+    ticket: num(r.ticket, 500, 500000, DEFAULTS.ticket, true), months,
+    members: num(r.members, mlo, mhi, clamp(DEFAULTS.members, mlo, mhi), true),
+    commissionPct: num(r.commissionPct, 0, 15, DEFAULTS.commissionPct),
+    commissionBasis: r.commissionBasis === 'cycle' ? 'cycle' : 'auction',
+    maxDiscountPct: num(r.maxDiscountPct, 10, 50, DEFAULTS.maxDiscountPct),
+    heat, startPct: num(r.startPct, 0, 50, DEFAULTS.startPct), endPct: num(r.endPct, 0, 50, DEFAULTS.endPct),
+    foremanFirst: r.foremanFirst !== false && r.foremanFirst !== 0 && r.foremanFirst !== 'false',
+    override: r.override && Number.isFinite(+r.override.month) && Number.isFinite(+r.override.pct) ? { month: Math.round(+r.override.month), pct: clamp(+r.override.pct, 0, 50) } : null,
+    defaultPct: num(r.defaultPct, 0, 15, DEFAULTS.defaultPct), coverPct: num(r.coverPct, 0, 100, DEFAULTS.coverPct),
+    cacPerMember: num(r.cacPerMember, 0, 5000, DEFAULTS.cacPerMember), opsPerMemberMonth: num(r.opsPerMemberMonth, 0, 200, DEFAULTS.opsPerMemberMonth),
+    txnFee: num(r.txnFee, 0, 15, DEFAULTS.txnFee), securityPct: num(r.securityPct, 0, 150, DEFAULTS.securityPct),
+    joiningFeePct: num(r.joiningFeePct, 0, 5, 0), serviceFeePct: num(r.serviceFeePct, 0, 10, 0),
+    mix: { early: num(mixIn.early, 0, 100, DEFAULTS.mix.early), flex: num(mixIn.flex, 0, 100, DEFAULTS.mix.flex), saver: num(mixIn.saver, 0, 100, DEFAULTS.mix.saver) },
+  };
+}
+export const memberRange = (T) => [Math.min(10, T), Math.min(15, T)]; // typical group size
+export const memberBounds = (T) => [Math.min(2, T), Math.min(30, T)]; // what the calculator lets you explore
 
 /** Heat presets are quoted for a 20-month cycle and scale with duration (shorter cycle => smaller % discounts). */
 export function heatBids(key, months) {
@@ -63,7 +90,7 @@ export function withScheme(cfg, id) {
 /** Distribute tickets over members (a member can hold several when members < tickets). */
 export function allocate(cfg) {
   const tk = cfg.months - (cfg.foremanFirst ? 1 : 0);
-  const M = clamp(cfg.members, ...memberRange(cfg.months));
+  const M = clamp(cfg.members, ...memberBounds(cfg.months));
   const base = Math.floor(tk / M), extra = tk % M;
   const holds = Array.from({ length: M }, (_, i) => base + (i < extra ? 1 : 0));
   return { holds, maxHold: Math.max(...holds), multi: tk > M, M, tickets: tk };
@@ -72,7 +99,7 @@ export function allocate(cfg) {
 export function simulate(cfg) {
   const T = cfg.months, s = cfg.ticket, C = s * T;
   const cp = cfg.commissionPct / 100;
-  const maxD = Math.min(cfg.maxDiscountPct, ACT.maxDiscountPct) / 100;
+  const maxD = cfg.maxDiscountPct / 100; // may exceed the Act's 30%: flagged by compliance(), not blocked
   const ff = cfg.foremanFirst;
   const feeMonths = T - (ff ? 1 : 0);
   const feeOf = (m) => (ff && m === 1 ? 0 : cfg.commissionBasis === 'cycle' ? (cp * C) / feeMonths : cp * C);
@@ -90,7 +117,8 @@ export function simulate(cfg) {
       D = Math.max(fee, Math.min((pct / 100) * C, maxD * C));
     }
     const div = (D - fee) / T;
-    rows.push({ m, kind, D, fee, div, eff: s - div, prize: C - D, pct: (D / C) * 100 });
+    const service = (s * (cfg.serviceFeePct || 0)) / 100, join = m === 1 ? (C * (cfg.joiningFeePct || 0)) / 100 : 0;
+    rows.push({ m, kind, D, fee, div, eff: s - div, service, join, pay: s - div + service, prize: C - D, pct: (D / C) * 100 });
   }
   return { cfg, T, s, C, rows, volume: C * T };
 }
@@ -118,15 +146,15 @@ export function annualIrr(fl) {
 /** Everything about a ticket that wins in month w. */
 export function ticket(sim, w) {
   const r = sim.rows[w - 1];
-  const paid = sum(sim.rows.map((x) => x.eff));
-  const flows = sim.rows.map((x) => -x.eff + (x.m === w ? r.prize : 0));
+  const paid = sum(sim.rows.map((x) => x.pay + x.join));
+  const flows = sim.rows.map((x) => -(x.pay + x.join) + (x.m === w ? r.prize : 0));
   let run = 0;
   const cumulative = flows.map((f) => (run += f));
   return {
     w, prize: r.prize, discount: r.D, discountPct: r.pct,
     paid, net: r.prize - paid, face: sim.C,
-    paidBefore: sum(sim.rows.slice(0, w).map((x) => x.eff)),
-    remaining: sum(sim.rows.slice(w).map((x) => x.eff)),
+    paidBefore: sum(sim.rows.slice(0, w).map((x) => x.pay + x.join)),
+    remaining: sum(sim.rows.slice(w).map((x) => x.pay)),
     flows, cumulative,
     irr: annualIrr(flows),
   };
@@ -143,13 +171,15 @@ export function analyze(cfg) {
   const midW = Math.max(firstMember, Math.round(T * 0.5));
   const early = ticket(sim, earlyW), mid = ticket(sim, midW), saver = ticket(sim, T);
 
-  const effs = rows.map((r) => r.eff);
-  const revenue = sum(rows.map((r) => r.fee));
+  const effs = rows.map((r) => r.pay);
+  const commissionRevenue = sum(rows.map((r) => r.fee));
+  const feeRevenue = alloc.tickets * (sum(rows.map((r) => r.service)) + rows[0].join);
+  const revenue = commissionRevenue + feeRevenue;
   const distributed = sum(rows.map((r) => r.D - r.fee));
 
   // Prized-member exposure: what prized members still owe the chit after receiving the pot.
   const suffix = Array(T + 2).fill(0);
-  for (let m = T; m >= 1; m--) suffix[m] = suffix[m + 1] + rows[m - 1].eff;
+  for (let m = T; m >= 1; m--) suffix[m] = suffix[m + 1] + rows[m - 1].pay;
   const remaining = (w) => suffix[w + 1];
   const unpaidAvg = (w) => { if (w >= T) return 0; let a = 0; for (let d = w + 1; d <= T; d++) a += suffix[d]; return a / (T - w); };
   const exposure = [];
@@ -165,7 +195,7 @@ export function analyze(cfg) {
   const margin = revenue - expectedLoss - fixed;
   const capital = (cfg.securityPct / 100) * C;
   const mgr = {
-    revenue, expectedLoss, processing, ops, acquisition, margin, capital, peakExposure, lossPerUnit,
+    revenue, commissionRevenue, feeRevenue, expectedLoss, processing, ops, acquisition, margin, capital, peakExposure, lossPerUnit,
     marginPct: (margin / volume) * 100,
     perCr: (margin * 1e7) / volume,
     roe: capital > 0 ? (margin / capital) * (12 / T) * 100 : null,
@@ -198,15 +228,26 @@ export function analyze(cfg) {
     sim, alloc, early, mid, saver, earlyW, midW, mgr, gauges, winWin, health, healthParts: { ...parts, concentration },
     revenue, distributed, volume, C,
     effMin: Math.min(...effs), effMax: Math.max(...effs), effAvg: sum(effs) / T,
-    totalPaid: sum(effs), remaining, unpaidAvg, firstMember,
+    totalPaid: sum(effs) + sum(rows.map((r) => r.join)), commissionRevenue, feeRevenue, compliance: compliance(cfg, sim), remaining, unpaidAvg, firstMember,
   };
+}
+
+/** Statutory check (limits per the brief: commission <= 7%, discount <= 30% of chit). Flags only; never blocks. */
+export function compliance(cfg, sim) {
+  const issues = [], notes = [];
+  if (cfg.commissionPct > ACT.maxCommissionPct) issues.push(`Commission ${cfg.commissionPct}% is above the ${ACT.maxCommissionPct}% ceiling`);
+  if (cfg.commissionPct > cfg.maxDiscountPct) issues.push(`Commission ${cfg.commissionPct}% exceeds your maximum discount ${cfg.maxDiscountPct}%, so every auction must breach the cap`);
+  const peak = Math.max(...sim.rows.map((r) => r.pct));
+  if (peak > ACT.maxDiscountPct + 1e-9) issues.push(`Discounts reach ${peak.toFixed(1)}%, above the ${ACT.maxDiscountPct}% ceiling`);
+  if ((cfg.joiningFeePct || 0) > 0 || (cfg.serviceFeePct || 0) > 0) notes.push('Extra fees sit outside the statutory commission. Check the registered agreement allows them');
+  return { ok: issues.length === 0, issues, notes };
 }
 
 /** Monte Carlo of post-prize defaults. Deterministic for a given seed. */
 export function monteCarlo(cfg, a, trials = 3000, seed = 11) {
   const { T } = a.sim, p = cfg.defaultPct / 100, rand = rng(seed);
   const suffix = Array(T + 2).fill(0);
-  for (let m = T; m >= 1; m--) suffix[m] = suffix[m + 1] + a.sim.rows[m - 1].eff;
+  for (let m = T; m >= 1; m--) suffix[m] = suffix[m + 1] + a.sim.rows[m - 1].pay;
   const base = a.mgr.revenue - a.mgr.processing - a.mgr.ops - a.mgr.acquisition;
   const unc = 1 - cfg.coverPct / 100;
   const out = [];
@@ -215,12 +256,13 @@ export function monteCarlo(cfg, a, trials = 3000, seed = 11) {
     for (let w = a.firstMember; w < T; w++) if (rand() < p) { const d = w + 1 + Math.floor(rand() * (T - w)); loss += suffix[d] * unc; }
     out.push(base - loss);
   }
+  const mean = out.reduce((a, b) => a + b, 0) / trials, sd = Math.sqrt(out.reduce((a, b) => a + (b - mean) ** 2, 0) / (trials - 1));
   const sorted = [...out].sort((x, y) => x - y);
   const q = (f) => sorted[Math.min(trials - 1, Math.floor(f * trials))];
   const lo = sorted[0], hi = sorted[trials - 1], bins = 24, width = (hi - lo) / bins || 1;
   const hist = Array(bins).fill(0);
   for (const v of out) hist[Math.min(bins - 1, Math.floor((v - lo) / width))]++;
-  return { p5: q(0.05), p50: q(0.5), p95: q(0.95), worst: lo, best: hi, probLoss: out.filter((v) => v < 0).length / trials, hist, lo, width, trials };
+  return { mean, sd, p5: q(0.05), p50: q(0.5), p95: q(0.95), worst: lo, best: hi, probLoss: out.filter((v) => v < 0).length / trials, hist, lo, width, trials };
 }
 
 /** Compare schemes x tickets at the current assumptions. */
