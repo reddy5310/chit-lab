@@ -192,9 +192,9 @@ function viewAuctions(a) {
   const rows = a.sim.rows, c = S.cfg;
   const sel = rows[(S.sel ?? a.earlyW) - 1] || rows[0];
   const split = (sel.prize / a.C) * 100, fee = (sel.fee / a.C) * 100, div = ((sel.D - sel.fee) / a.C) * 100;
-  return `<div class="grid2" style="grid-template-columns:minmax(0,1.5fr) minmax(0,1fr)">
-  <div class="card"><h2>Month by month</h2><div class="sub">Click a row to see exactly where each rupee goes.</div><div class="tw"><table><thead><tr><th>Month</th><th>Winner</th><th>Discount</th><th>Fee</th><th>Dividend / ticket</th><th>Members pay</th><th>Winner gets</th></tr></thead><tbody>
-  ${rows.map((r) => `<tr data-sel="${r.m}" class="${r.m === sel.m ? 'sel' : ''}"><td>${r.m}</td><td>${r.kind === 'foreman' ? '<span class="tag f">Foreman</span>' : r.kind === 'final' ? '<span class="tag l">Last ticket</span>' : 'Bid winner'}</td><td>${pct(r.pct)} · ${fmtShort(r.D)}</td><td>${fmtShort(r.fee)}</td><td>${inr(r.div)}</td><td><b>${inr(r.eff)}</b></td><td>${inr(r.prize)}</td></tr>`).join('')}</tbody></table></div></div>
+  return `<div class="grid2 ga">
+  <div class="card"><h2>Month by month</h2><div class="sub">Click a row to see exactly where each rupee goes.</div><div class="tw"><table><thead><tr><th>Month</th><th>Winner</th><th>Discount</th><th>Dividend</th><th>Members pay</th><th>Winner gets</th></tr></thead><tbody>
+  ${rows.map((r) => `<tr data-sel="${r.m}" class="${r.m === sel.m ? 'sel' : ''}"><td>${r.m}</td><td>${r.kind === 'foreman' ? '<span class="tag f">Foreman</span>' : r.kind === 'final' ? '<span class="tag l">Last ticket</span>' : 'Bid winner'}</td><td>${pct(r.pct)} · ${fmtShort(r.D)}</td><td>${inr(r.div)}</td><td><b>${inr(r.eff)}</b></td><td>${inr(r.prize)}</td></tr>`).join('')}</tbody></table></div></div>
   <div class="card"><h2>Why month ${sel.m} works out this way</h2><div class="sub">${inr(a.C)} chit · discount ${pct(sel.pct)}</div>
     <div class="split"><i style="width:${split}%;background:var(--s1)"></i><i style="width:${fee}%;background:var(--s2)"></i><i style="width:${div}%;background:var(--s3)"></i></div>
     ${legend([{ v: 's1', t: `Winner ${inr(sel.prize)}` }, { v: 's2', t: `Foreman fee ${inr(sel.fee)}` }, { v: 's3', t: `Shared back ${inr(sel.D - sel.fee)}` }])}
@@ -220,11 +220,11 @@ function paintMember(a) {
   const sim = a.sim;
   const mine = E.ticket(sim, need), mid = E.ticket(sim, E.clamp(Math.round(T * 0.5), need, T)), last = a.saver;
   $('#o-need').textContent = `${need} of ${T}`; $('#o-bid').textContent = `${pct(mine.discountPct)} · ${inr(mine.discount)}`;
-  const cols = [[`Take in month ${need}`, mine, 's2'], [`Take in month ${mid.w}`, mid, 's1'], [`Wait till month ${T}`, last, 's3']];
+  const cols = [[`Month ${need}`, mine, 's2'], [`Month ${mid.w}`, mid, 's1'], [`Month ${T} (wait)`, last, 's3']];
   const chart = lines({ series: cols.map(([n, t, k]) => ({ name: n, cls: k, values: t.cumulative, label: k === 's2' ? 'You' : k === 's1' ? 'Mid' : 'Wait' })), xs: a.sim.rows.map((r) => r.m), yFmt: fmtShort,
     tip: (i) => `<b>After month ${i + 1}</b>\n${cols.map(([n, t]) => `${n}: ${inr(t.cumulative[i])}`).join('\n')}` });
-  const labelFor = (t) => (t.w <= T / 2 ? 'Cost of cash p.a.' : 'Yield on savings p.a.');
-  $('#mOut').innerHTML = `<div class="grid2"><div class="card"><h2>Your position over time</h2><div class="sub">Cumulative cash: received minus paid. The month you take the pot, the line jumps.</div>${chart}${legend(cols.map(([n, , k]) => ({ v: k, t: n })))}</div>
+  const labelFor = (t) => (t.w <= T / 2 ? 'cost p.a.' : 'yield p.a.');
+  $('#mOut').innerHTML = `<div class="grid2 gm"><div class="card"><h2>Your position over time</h2><div class="sub">Cumulative cash: received minus paid. The month you take the pot, the line jumps.</div>${chart}${legend(cols.map(([n, , k]) => ({ v: k, t: n })))}</div>
   <div class="card"><h2>Side by side</h2><div class="sub">Same chit, three decisions.</div><div class="tw"><table><thead><tr><th></th>${cols.map(([n]) => `<th>${n}</th>`).join('')}</tr></thead><tbody>
   <tr><td>Cash received</td>${cols.map(([, t]) => `<td><b>${inr(t.prize)}</b></td>`).join('')}</tr>
   <tr><td>Discount given up</td>${cols.map(([, t]) => `<td>${inr(t.discount)} (${pct(t.discountPct, 0)})</td>`).join('')}</tr>

@@ -177,3 +177,6 @@ svg.chart{width:100%;height:auto;display:block;overflow:visible}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 .split{display:flex;height:22px;border-radius:99px;overflow:hidden;gap:2px;margin:6px 0 4px}
 .split i{display:block;min-width:2px}
+.ga{grid-template-columns:minmax(0,1.7fr) minmax(0,1fr)}
+.gm{grid-template-columns:minmax(0,.9fr) minmax(0,1.3fr)}
+@media(max-width:900px){.ga,.gm{grid-template-columns:minmax(0,1fr)}}
